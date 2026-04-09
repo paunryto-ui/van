@@ -219,6 +219,19 @@ footer{background:#000;border-top:1px solid rgba(255,215,0,.05);padding:44px 6%;
 .ach-er{background:var(--bg4);border:1px solid rgba(255,255,255,.03);padding:10px;margin-bottom:7px}
 .ach-er-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .ach-er-lbl{font-family:var(--FC);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.user-row{display:grid;grid-template-columns:32px 1fr auto;gap:10px;align-items:center;padding:10px 12px;background:var(--bg4);border:1px solid rgba(255,255,255,.03);margin-bottom:6px}
+.user-av{width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid rgba(255,215,0,.12)}
+.user-av-ph{width:32px;height:32px;border-radius:50%;background:var(--bg5);display:flex;align-items:center;justify-content:center;font-family:var(--FH);font-size:14px;color:var(--gold3);border:1px solid rgba(255,215,0,.1)}
+.user-info-name{font-family:var(--FC);font-size:12px;letter-spacing:1px;color:var(--text);margin-bottom:2px}
+.user-info-email{font-family:var(--FB);font-size:10px;color:var(--muted)}
+.user-badge{font-family:var(--FC);font-size:8px;letter-spacing:2px;text-transform:uppercase;padding:2px 8px;margin-top:4px;display:inline-block}
+.user-badge.admin{background:rgba(255,215,0,.1);color:var(--gold);border:1px solid rgba(255,215,0,.2)}
+.user-badge.user{background:rgba(255,255,255,.04);color:var(--muted);border:1px solid rgba(255,255,255,.08)}
+.role-toggle{font-family:var(--FC);font-size:9px;letter-spacing:2px;text-transform:uppercase;background:none;border:1px solid rgba(255,215,0,.15);color:var(--gold3);padding:6px 12px;cursor:pointer;transition:all .3s;white-space:nowrap}
+.role-toggle:hover{background:rgba(255,215,0,.08);border-color:var(--gold)}
+.role-toggle.demote{border-color:rgba(210,3,25,.2);color:var(--red2)}
+.role-toggle.demote:hover{background:rgba(210,3,25,.08)}
+.users-loading{font-family:var(--FC);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);text-align:center;padding:24px}
 
 /* TOAST */
 .toast{position:fixed;bottom:28px;right:28px;z-index:900;background:var(--gold);color:#000;font-family:var(--FC);font-weight:700;font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:11px 22px;transform:translateY(70px);transition:transform .4s cubic-bezier(.16,1,.3,1);pointer-events:none}
@@ -390,6 +403,7 @@ footer{background:#000;border-top:1px solid rgba(255,215,0,.05);padding:44px 6%;
     <div class="atabs">
       <button class="atab on" onclick="switchTab('members',this)">Members</button>
       <button class="atab" onclick="switchTab('ach',this)">Achievements</button>
+      <button class="atab" onclick="switchTab('users',this);buildUsersEdit()">Users</button>
       <button class="atab" onclick="switchTab('settings',this)">Settings</button>
     </div>
     <div class="apane on" id="pane-members">
@@ -403,6 +417,11 @@ footer{background:#000;border-top:1px solid rgba(255,215,0,.05);padding:44px 6%;
       <div id="aEditList"></div>
       <button class="add-btn" onclick="addAch()">+ Add Achievement</button>
       <button class="save-btn" onclick="saveAll()">Save & Update Website</button>
+    </div>
+    <div class="apane" id="pane-users">
+      <div class="a-sec">User Management</div>
+      <p style="font-family:var(--FB);font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.7">Semua user yang pernah login. Admin bisa promote/demote role kapan saja.</p>
+      <div id="usersEditList"><div class="users-loading">Loading users...</div></div>
     </div>
     <div class="apane" id="pane-settings">
       <div class="a-sec">Team Logo</div>
@@ -429,7 +448,7 @@ import {
   onAuthStateChanged, sendEmailVerification
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp
+  getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, updateDoc
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -593,14 +612,14 @@ onAuthStateChanged(auth, async (user) => {
 
     isAdmin = role === 'admin';
     setMsg(isAdmin ? '👑 Welcome Admin!' : '✓ Welcome, ' + (user.displayName || 'member') + '!', 'ok');
-    setTimeout(() => { closeModal('loginMod'); onAdmin(); }, 900);
+    setTimeout(() => { closeModal('loginMod'); isAdmin ? onAdmin() : onUserLogin(); }, 900);
 
   } else {
     // user sudah ada
     const data = userSnap.data();
     isAdmin = data.role === 'admin';
     setMsg(isAdmin ? '👑 Welcome back Admin!' : '✓ Welcome back, ' + (user.displayName || data.name) + '!', 'ok');
-    setTimeout(() => { closeModal('loginMod'); onAdmin(); }, 900);
+    setTimeout(() => { closeModal('loginMod'); isAdmin ? onAdmin() : onUserLogin(); }, 900);
   }
 
   updateNav();
@@ -731,11 +750,21 @@ function updateNav() {
   const loginBtn = document.getElementById('navLoginBtn');
   const adminBtn = document.getElementById('navAdminBtn');
   if (!currentUser) {
-    if (loginBtn) loginBtn.style.display = '';
+    if (loginBtn) { loginBtn.style.display = ''; loginBtn.textContent = 'Login'; loginBtn.onclick = () => openModal('loginMod'); loginBtn.style.borderColor=''; loginBtn.style.color=''; }
     if (adminBtn) adminBtn.classList.remove('show');
-  } else {
+  } else if (isAdmin) {
     if (loginBtn) loginBtn.style.display = 'none';
-    if (adminBtn && isAdmin) adminBtn.classList.add('show');
+    if (adminBtn) adminBtn.classList.add('show');
+  } else {
+    // user biasa — tampilkan nama di tombol nav, klik = logout
+    if (loginBtn) {
+      loginBtn.style.display = '';
+      loginBtn.textContent = currentUser.displayName?.split(' ')[0] || 'Logout';
+      loginBtn.onclick = () => doLogout();
+      loginBtn.style.borderColor = 'rgba(255,215,0,.25)';
+      loginBtn.style.color = 'var(--gold3)';
+    }
+    if (adminBtn) adminBtn.classList.remove('show');
   }
 }
 
@@ -764,6 +793,20 @@ function onAdmin() {
   renderTeam();
 }
 
+function onUserLogin() {
+  // user biasa — update nav tapi tidak dapat admin access
+  document.body.classList.remove('is-admin');
+  document.getElementById('navAdminBtn').classList.remove('show');
+  const loginBtn = document.getElementById('navLoginBtn');
+  if (loginBtn) {
+    loginBtn.textContent = currentUser?.displayName?.split(' ')[0] || 'Logout';
+    loginBtn.onclick = () => doLogout();
+    loginBtn.style.borderColor = 'rgba(255,215,0,.3)';
+    loginBtn.style.color = 'var(--gold3)';
+  }
+  renderTeam();
+}
+
 // ═══════════════════════════════════════════════════
 // LOGOUT
 // ═══════════════════════════════════════════════════
@@ -772,7 +815,14 @@ async function doLogout() {
   currentUser = null; isAdmin = false;
   document.body.classList.remove('is-admin');
   document.getElementById('navAdminBtn').classList.remove('show');
-  document.getElementById('navLoginBtn').style.display = '';
+  const loginBtn = document.getElementById('navLoginBtn');
+  if (loginBtn) {
+    loginBtn.style.display = '';
+    loginBtn.textContent = 'Login';
+    loginBtn.onclick = () => openModal('loginMod');
+    loginBtn.style.borderColor = '';
+    loginBtn.style.color = '';
+  }
   closeModal('adminMod');
   renderTeam();
   showToast('Signed out.');
@@ -840,6 +890,82 @@ function addMember() { D.members.push({name:'NEW PLAYER', role:'Role', hero:'Her
 function delMember(i) { if (D.members.length <= 1) return; D.members.splice(i, 1); buildMEdit(); }
 
 // ═══════════════════════════════════════════════════
+// USER MANAGEMENT (Admin Only)
+// ═══════════════════════════════════════════════════
+async function buildUsersEdit() {
+  if (!isAdmin) return;
+  const listEl = document.getElementById('usersEditList');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="users-loading">Loading users...</div>';
+
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    if (snap.empty) {
+      listEl.innerHTML = '<div class="users-loading">No users found.</div>';
+      return;
+    }
+
+    const rows = [];
+    snap.forEach(d => {
+      const u = d.data();
+      const uid = d.id;
+      const isSelf = uid === currentUser?.uid;
+      const isUserAdmin = u.role === 'admin';
+      const initial = (u.name || u.email || '?')[0].toUpperCase();
+
+      rows.push(`
+        <div class="user-row" id="urow-${uid}">
+          ${u.photo
+            ? `<img class="user-av" src="${u.photo}" alt="" onerror="this.style.display='none';this.nextSibling.style.display='flex'"/><div class="user-av-ph" style="display:none">${initial}</div>`
+            : `<div class="user-av-ph">${initial}</div>`}
+          <div>
+            <div class="user-info-name">${u.name || '(No name)'} ${isSelf ? '<span style="color:var(--gold3);font-size:8px">[YOU]</span>' : ''}</div>
+            <div class="user-info-email">${u.email || ''}</div>
+            <span class="user-badge ${isUserAdmin ? 'admin' : 'user'}" id="ubadge-${uid}">${isUserAdmin ? '👑 Admin' : 'User'}</span>
+          </div>
+          ${!isSelf
+            ? `<button class="role-toggle ${isUserAdmin ? 'demote' : ''}" id="ubtn-${uid}" onclick="toggleUserRole('${uid}', '${isUserAdmin ? 'admin' : 'user'}')">
+                ${isUserAdmin ? 'Demote to User' : 'Promote to Admin'}
+              </button>`
+            : `<span style="font-family:var(--FC);font-size:8px;color:var(--muted2);letter-spacing:1px">Cannot<br>edit self</span>`}
+        </div>
+      `);
+    });
+    listEl.innerHTML = rows.join('');
+  } catch(e) {
+    listEl.innerHTML = `<div class="users-loading">Error: ${e.message}</div>`;
+  }
+}
+
+async function toggleUserRole(uid, currentRole) {
+  if (!isAdmin) return;
+  const newRole = currentRole === 'admin' ? 'user' : 'admin';
+  const btn = document.getElementById('ubtn-' + uid);
+  const badge = document.getElementById('ubadge-' + uid);
+  if (btn) { btn.textContent = 'Saving...'; btn.style.opacity = '.5'; btn.disabled = true; }
+
+  try {
+    await updateDoc(doc(db, 'users', uid), { role: newRole });
+    // update UI
+    if (badge) {
+      badge.textContent = newRole === 'admin' ? '👑 Admin' : 'User';
+      badge.className = 'user-badge ' + newRole;
+    }
+    if (btn) {
+      btn.textContent = newRole === 'admin' ? 'Demote to User' : 'Promote to Admin';
+      btn.className = 'role-toggle' + (newRole === 'admin' ? ' demote' : '');
+      btn.onclick = () => toggleUserRole(uid, newRole);
+      btn.style.opacity = '1';
+      btn.disabled = false;
+    }
+    showToast(newRole === 'admin' ? '👑 User promoted to Admin' : '✓ Demoted to User');
+  } catch(e) {
+    showToast('⚠ Failed: ' + e.message);
+    if (btn) { btn.textContent = currentRole === 'admin' ? 'Demote to User' : 'Promote to Admin'; btn.style.opacity = '1'; btn.disabled = false; }
+  }
+}
+
+// ═══════════════════════════════════════════════════
 // ACHIEVEMENT EDIT
 // ═══════════════════════════════════════════════════
 function buildAEdit() {
@@ -895,6 +1021,8 @@ function showToast(msg) {
 // EXPOSE TO GLOBAL (karena HTML pakai onclick=)
 // ═══════════════════════════════════════════════════
 window.doGoogleLogin  = doGoogleLogin;
+window.buildUsersEdit = buildUsersEdit;
+window.toggleUserRole = toggleUserRole;
 window.doLogout       = doLogout;
 window.openModal      = openModal;
 window.closeModal     = closeModal;
